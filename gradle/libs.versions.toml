@@ -1,0 +1,11 @@
+[versions]
+jacoco = "0.8.12"
+checkstyle = "10.18.1"
+
+[libraries]
+spring-cloud-dependencies = { module = "org.springframework.cloud:spring-cloud-dependencies", version = "2023.0.3" }
+springdoc-openapi-starter-webmvc-api = { module = "org.springdoc:springdoc-openapi-starter-webmvc-api", version = "2.6.0" }
+redisson = { module = "org.redisson:redisson", version = "3.36.0" }
+
+[plugins]
+spring-boot = { id = "org.springframework.boot", version = "3.3.4" }

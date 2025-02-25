@@ -1,0 +1,15 @@
+pluginManagement {
+    repositories {
+    }
+    buildscript {
+        repositories {
+            mavenCentral()
+        }
+
+    }
+    plugins {
+        id 'com.gorylenko.gradle-git-properties' version "${gitPropertiesPluginVersion}"
+    }
+}
+
+rootProject.name = "exchangeClient"

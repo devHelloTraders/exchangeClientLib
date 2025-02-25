@@ -1,0 +1,181 @@
+plugins {
+    id 'java' // For creating a reusable library
+//    id 'org.springframework.boot' version '3.3.0' apply false // Disable Spring Boot's default JAR packaging
+//    id 'io.spring.dependency-management' version '1.1.6' // Dependency management
+    id 'idea'
+    id 'eclipse'
+    id 'maven-publish'
+    id "com.gorylenko.gradle-git-properties"
+    alias(libs.plugins.spring.boot)
+}
+
+group = 'com.traders.hello'
+version = '0.0.1-SNAPSHOT'
+description = 'Advanced Trading Exchange Library for platform which allows to test your skill before real investment'
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_21 // Align with Spring Boot 3.3.0 compatibility
+    targetCompatibility = JavaVersion.VERSION_21
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21) // Consistent with Java 21
+    }
+}
+
+repositories {
+    mavenCentral()
+    mavenLocal()
+    maven { url 'https://repo.spring.io/milestone' } // For Spring experimental features
+}
+
+ext {
+    set('springCloudVersion', "2023.0.3")
+}
+
+// Remove Spring Boot and other unnecessary plugins
+apply plugin: 'io.spring.dependency-management'
+
+dependencies {
+    implementation 'org.springframework:spring-web'
+    implementation 'org.springframework:spring-websocket'
+    implementation 'org.springframework:spring-context'
+    implementation 'org.springframework:spring-messaging'
+    implementation 'org.springframework:spring-core'
+
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+
+    implementation 'org.springframework.cloud:spring-cloud-starter-openfeign'
+
+    implementation 'javax.websocket:javax.websocket-api:1.1'
+    runtimeOnly 'org.glassfish.tyrus:tyrus-server:2.1.5'
+    runtimeOnly 'org.glassfish.tyrus:tyrus-container-grizzly-server:2.1.5'
+
+    implementation 'io.github.resilience4j:resilience4j-circuitbreaker:2.2.0'
+    implementation 'io.github.resilience4j:resilience4j-spring-boot3:2.2.0'
+
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+
+    implementation 'org.redisson:redisson-spring-boot-starter:3.32.0'
+
+    compileOnly 'org.projectlombok:lombok:1.18.32'
+    annotationProcessor 'org.projectlombok:lombok:1.18.32'
+
+    implementation 'com.fasterxml.jackson.core:jackson-databind'
+
+    implementation 'org.slf4j:slf4j-api:2.0.13'
+    implementation 'ch.qos.logback:logback-classic:1.5.6'
+
+    implementation 'com.opencsv:opencsv:5.9'
+    // Your common service dependency
+    implementation 'com.traders.hello:commonService:1.0.2-SNAPSHOT'
+    implementation 'org.springframework:spring-websocket:6.2.3'
+
+    // Testing dependencies
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.10.2'
+    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.10.2'
+
+    implementation 'org.springframework:spring-messaging:6.2.3'
+
+    // Ensure Spring Boot integration for Feign (optional, but helps)
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+
+}
+
+dependencyManagement {
+    imports {
+        mavenBom "org.springframework.cloud:spring-cloud-dependencies:${springCloudVersion}"
+    }
+}
+    tasks.withType(JavaCompile) {
+        options.encoding = 'UTF-8'
+        options.compilerArgs += ['--enable-preview'] // Enable Java 21 preview features
+    }
+
+    tasks.withType(Test) {
+        useJUnitPlatform()
+        jvmArgs '--enable-preview'
+    }
+//
+//publishing {
+//    publications {
+//        mavenJava(MavenPublication) {
+//            from components.java
+//            groupId = 'com.traders.hello'
+//            artifactId = 'exchangeClient'
+//            version = '0.0.1-SNAPSHOT'
+//            pom {
+//                name = 'Trading Exchange Library'
+//                description = project.description
+//                url = 'https://github.com/your-org/trading-exchange-lib'
+//                licenses {
+//                    license {
+//                        name = 'Apache License, Version 2.0'
+//                        url = 'http://www.apache.org/licenses/LICENSE-2.0'
+//                    }
+//                }
+//                developers {
+//                    developer {
+//                        id = 'yourname'
+//                        name = 'Your Name'
+//                        email = 'your.email@example.com'
+//                    }
+//                }
+//                scm {
+//                    connection = 'scm:git:git://github.com/your-org/trading-exchange-lib.git'
+//                    developerConnection = 'scm:git:ssh://github.com/your-org/trading-exchange-lib.git'
+//                    url = 'https://github.com/your-org/trading-exchange-lib'
+//                }
+//            }
+//        }
+//    }
+//    repositories {
+//        mavenLocal() // Publish to ~/.m2/repository
+//    }
+//}
+//
+//tasks.named('jar') {
+//    manifest {
+//        attributes(
+//                'Implementation-Title': project.name,
+//                'Implementation-Version': project.version
+//        )
+//    }
+//}
+//
+//task cleanResources(type: Delete) {
+//    delete "build/resources"
+//}
+//
+//tasks.named('publishToMavenLocal') {
+//    dependsOn 'jar'
+//}
+
+
+    tasks.named('jar') {
+        manifest {
+            attributes(
+                    'Implementation-Title': project.name,
+                    'Implementation-Version': project.version
+            )
+        }
+    }
+
+    task cleanResources(type: Delete) {
+        delete "build/resources"
+    }
+
+    publishing {
+        publications {
+            mavenJava(MavenPublication) {
+                from components.java
+                groupId = 'com.traders.hello'
+                artifactId = 'exchangeClient'
+                version = '0.0.1-SNAPSHOT'
+            }
+        }
+        repositories {
+            maven {
+                url = uri('file://${project.buildDir}/repo') // For local publishing
+            }
+        }
+    }
