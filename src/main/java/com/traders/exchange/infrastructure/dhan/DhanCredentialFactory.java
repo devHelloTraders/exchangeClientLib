@@ -1,3 +1,4 @@
+// com.traders.exchange.infrastructure.dhan.DhanCredentialFactory
 package com.traders.exchange.infrastructure.dhan;
 
 import com.traders.common.utils.EncryptionUtil;
@@ -25,14 +26,13 @@ public class DhanCredentialFactory {
 
     private void initializeCredentials() {
         credentials.addAll(config.apiCredentials().stream()
-                        .flatMap (x -> IntStream.range(0,config.allowedConnection()).mapToObj(i ->x))
-            .map(this::createCredential)
-            .toList());
+                .flatMap(x -> IntStream.range(0, config.allowedConnection()).mapToObj(i -> x))
+                .map(this::createCredential)
+                .toList());
     }
 
     private Credential createCredential(String raw) {
         raw = EncryptionUtil.decrypt(raw);
-
         String[] parts = raw.split(":", 2);
         if (parts.length != 2) throw new IllegalArgumentException("Invalid credential format");
         return new Credential(parts[0].trim(), parts[1].trim());
@@ -41,6 +41,4 @@ public class DhanCredentialFactory {
     public Credential getRandomCredential() {
         return credentials.get(ThreadLocalRandom.current().nextInt(credentials.size()));
     }
-
-
 }

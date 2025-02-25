@@ -1,3 +1,4 @@
+// com.traders.exchange.infrastructure.dhan.DhanWebSocketFactory
 package com.traders.exchange.infrastructure.dhan;
 
 import com.traders.exchange.orders.service.OrderMatchingService;
@@ -26,6 +27,8 @@ public class DhanWebSocketFactory {
                 .withHandler(handler)
                 .withUrl(url)
                 .build();
-        return new DhanConnectionPool.DhanConnection(manager, Executors.newVirtualThreadPerTaskExecutor());
+        DhanConnectionPool.DhanConnection connection = new DhanConnectionPool.DhanConnection(manager, Executors.newVirtualThreadPerTaskExecutor(), handler);
+        handler.setOwnerConnection(connection); // Set after creation
+        return connection;
     }
 }

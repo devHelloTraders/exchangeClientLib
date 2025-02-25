@@ -6,6 +6,7 @@ import com.traders.exchange.domain.SubscriptionCommand;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.web.socket.BinaryMessage;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.client.WebSocketConnectionManager;
@@ -14,8 +15,10 @@ import java.io.IOException;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -23,6 +26,9 @@ import java.util.stream.Collectors;
 public class DhanConnectionPool {
     private static final int SUBSCRIBE_REQUEST_CODE = 21;
     private static final int UNSUBSCRIBE_REQUEST_CODE = 22;
+    private static final long HEARTBEAT_INTERVAL_MS = 30000; // 30 seconds
+    private static final int MAX_RECONNECT_ATTEMPTS = 5;
+    private static final long INITIAL_BACKOFF_MS = 1000; // 1 second
 
     private final DhanCredentialFactory credentialFactory;
     private final DhanWebSocketFactory webSocketFactory;
@@ -37,10 +43,10 @@ public class DhanConnectionPool {
 
     public void initialize() {
         connections.clear();
-        credentialFactory.getCredentials().forEach(credential ->  {
+        credentialFactory.getCredentials().forEach(credential -> {
             connections.add(webSocketFactory.createConnection(credential));
-           // this.createNewConnection(credential);
         });
+        log.info("Initialized DhanConnectionPool with {} connections", connections.size());
     }
 
     public void execute(SubscriptionCommand command) {
@@ -57,7 +63,7 @@ public class DhanConnectionPool {
     private DhanConnection getLeastLoadedConnection() {
         return connections.stream()
                 .min(Comparator.comparingInt(DhanConnection::getLoad))
-                .orElseGet(()->createNewConnection(credentialFactory.getRandomCredential()));
+                .orElseGet(() -> createNewConnection(credentialFactory.getRandomCredential()));
     }
 
     private DhanConnection createNewConnection(DhanCredentialFactory.Credential credential) {
@@ -70,21 +76,54 @@ public class DhanConnectionPool {
         connections.forEach(DhanConnection::restart);
     }
 
-    record DhanConnection(WebSocketConnectionManager manager, Executor executor) {
+    public static class DhanConnection {
+        private final WebSocketConnectionManager manager;
+        private final Executor executor;
+        private final DhanWebSocketHandler handler;
+        private final ScheduledExecutorService heartbeatExecutor;
+        private volatile boolean isConnected;
+        private int reconnectAttempts;
+
+        public DhanConnection(WebSocketConnectionManager manager, Executor executor, DhanWebSocketHandler handler) {
+            this.manager = manager;
+            this.executor = executor;
+            this.handler = handler;
+            this.heartbeatExecutor = Executors.newSingleThreadScheduledExecutor();
+            this.isConnected = false;
+            this.reconnectAttempts = 0;
+            startConnection();
+            startHeartbeat();
+        }
+
+        private void startConnection() {
+            executor.execute(() -> {
+                try {
+                    manager.start();
+                    isConnected = true;
+                    reconnectAttempts = 0;
+                    log.info("DhanConnection started");
+                } catch (Exception e) {
+                    log.error("Failed to start DhanConnection: {}", e.getMessage(), e);
+                    reconnect();
+                }
+            });
+        }
+
         public void subscribe(List<InstrumentInfo> instruments) {
             executor.execute(() -> {
                 try {
-                   // manager.start();
-                    WebSocketSession session = ((WebSocketConnectionManagerBuilder.CustomWebSocketConnectionManager) manager).getSession();
+                    WebSocketSession session = handler.getSession();
                     if (session != null && session.isOpen()) {
                         String subscriptionMessage = createSubscriptionMessage(instruments, SUBSCRIBE_REQUEST_CODE);
                         session.sendMessage(new TextMessage(subscriptionMessage));
                         log.info("Subscribed to {} instruments", instruments.size());
                     } else {
                         log.warn("WebSocket session not open for subscription");
+                        reconnect();
                     }
                 } catch (IOException e) {
                     log.error("Failed to subscribe: {}", e.getMessage(), e);
+                    reconnect();
                 }
             });
         }
@@ -92,16 +131,18 @@ public class DhanConnectionPool {
         public void unsubscribe(List<InstrumentInfo> instruments) {
             executor.execute(() -> {
                 try {
-                    WebSocketSession session = ((WebSocketConnectionManagerBuilder.CustomWebSocketConnectionManager) manager).getSession();
+                    WebSocketSession session = handler.getSession();
                     if (session != null && session.isOpen()) {
                         String unsubscribeMessage = createSubscriptionMessage(instruments, UNSUBSCRIBE_REQUEST_CODE);
                         session.sendMessage(new TextMessage(unsubscribeMessage));
                         log.info("Unsubscribed from {} instruments", instruments.size());
                     } else {
                         log.warn("WebSocket session not open for unsubscription");
+                        reconnect();
                     }
                 } catch (IOException e) {
                     log.error("Failed to unsubscribe: {}", e.getMessage(), e);
+                    reconnect();
                 }
             });
         }
@@ -125,6 +166,50 @@ public class DhanConnectionPool {
         public void restart() {
             manager.stop();
             executor.execute(manager::start);
+        }
+
+        private void startHeartbeat() {
+            heartbeatExecutor.scheduleAtFixedRate(() -> {
+                WebSocketSession session = handler.getSession();
+                if (isConnected && session != null && session.isOpen()) {
+                    try {
+                        session.sendMessage(new BinaryMessage(new byte[0]));
+                        log.debug("Sent heartbeat ping");
+                    } catch (Exception e) {
+                        log.warn("Heartbeat failed: {}", e.getMessage());
+                        reconnect();
+                    }
+                }
+            }, HEARTBEAT_INTERVAL_MS, HEARTBEAT_INTERVAL_MS, TimeUnit.MILLISECONDS);
+        }
+
+        void reconnect() {
+            if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+                log.error("Max reconnect attempts ({}) reached. Giving up.", MAX_RECONNECT_ATTEMPTS);
+                return;
+            }
+
+            long backoff = INITIAL_BACKOFF_MS * (1L << reconnectAttempts);
+            reconnectAttempts++;
+            log.info("Attempting reconnect #{} after {}ms backoff", reconnectAttempts, backoff);
+
+            executor.execute(() -> {
+                try {
+                    Thread.sleep(backoff);
+                    if (!isConnected) {
+                        manager.stop();
+                        manager.start();
+                        isConnected = true;
+                        log.info("Reconnection successful");
+                    }
+                    this.reconnectAttempts=0;
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    log.warn("Reconnect attempt interrupted", e);
+                } catch (Exception e) {
+                    log.error("Reconnection failed: {}", e.getMessage(), e);
+                }
+            });
         }
     }
 }

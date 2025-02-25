@@ -10,8 +10,8 @@ import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
 import org.springframework.messaging.support.AbstractMessageChannel;
 
-@Configuration
-@EnableWebSocketMessageBroker
+//@Configuration
+//@EnableWebSocketMessageBroker
 public class MessagingConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
@@ -25,9 +25,9 @@ public class MessagingConfig implements WebSocketMessageBrokerConfigurer {
         registry.addEndpoint("/ws").withSockJS(); // WebSocket endpoint for clients
     }
 
-    @Bean
-    @Primary
-    public SimpMessagingTemplate simpMessagingTemplate(AbstractMessageChannel brokerChannel) {
-        return new SimpMessagingTemplate(brokerChannel); // No setDestinationPrefix needed
-    }
+//    @Bean
+//    @Primary
+//    public SimpMessagingTemplate simpMessagingTemplate(AbstractMessageChannel brokerChannel) {
+//        return new SimpMessagingTemplate(brokerChannel); // No setDestinationPrefix needed
+//    }
 }

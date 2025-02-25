@@ -4,20 +4,27 @@ package com.traders.exchange.infrastructure.dhan;
 import com.traders.common.model.MarketQuotes;
 import com.traders.exchange.orders.service.OrderMatchingService;
 import com.traders.exchange.util.Subject;
+import lombok.Getter;
+import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.socket.BinaryMessage;
+import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.AbstractWebSocketHandler;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.concurrent.Executors;
 
 @Slf4j
 public class DhanWebSocketHandler extends AbstractWebSocketHandler {
     private final DhanResponseHandler responseHandler;
-    private final OrderMatchingService orderMatchingService; // Added dependency
+    private final OrderMatchingService orderMatchingService;
     private final Subject<MarketQuotes> priceUpdates;
+    @Getter
     private volatile WebSocketSession session;
+    @Setter
+    private DhanConnectionPool.DhanConnection ownerConnection; // Reference for reconnection
 
     public DhanWebSocketHandler(DhanResponseHandler responseHandler, OrderMatchingService orderMatchingService) {
         this.responseHandler = responseHandler;
@@ -29,7 +36,7 @@ public class DhanWebSocketHandler extends AbstractWebSocketHandler {
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {
         this.session = session;
-        log.info("WebSocket connection established");
+        log.info("WebSocket connection established for session: {}", session.getId());
     }
 
     @Override
@@ -44,13 +51,15 @@ public class DhanWebSocketHandler extends AbstractWebSocketHandler {
         if (feedResponseCode == 50) {
             short disconnectCode = buffer.getShort();
             log.info("Disconnection Code: {}", disconnectCode);
-        } else if (feedResponseCode == 8) { // Quote response code
+        } else if (feedResponseCode == 8) {
             String instrumentId = extractInstrumentId(responseHeader);
             MarketQuotes quote = MarketQuotes.parseFromByteBuffer(buffer, instrumentId);
-            if(quote.getLatestTradedPrice() ==0)
-                return;
-            priceUpdates.notifyObservers(quote); // Notify PriceUpdateManager
-            orderMatchingService.onPriceUpdate(instrumentId, quote); // Notify OrderMatchingService
+            if (quote.getLatestTradedPrice() == 0) return;
+            Executors.newVirtualThreadPerTaskExecutor().execute(()->{
+                priceUpdates.notifyObservers(quote);
+                orderMatchingService.onPriceUpdate(instrumentId, quote);
+            });
+
         } else {
             log.warn("Unhandled feed response code: {}", feedResponseCode);
         }
@@ -59,16 +68,22 @@ public class DhanWebSocketHandler extends AbstractWebSocketHandler {
     @Override
     public void handleTransportError(WebSocketSession session, Throwable exception) {
         log.error("WebSocket error: {}", exception.getMessage(), exception);
+        attemptReconnect();
     }
 
     @Override
-    public void afterConnectionClosed(WebSocketSession session, org.springframework.web.socket.CloseStatus status) {
+    public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
         log.info("WebSocket connection closed: {}", status);
         this.session = null;
+        attemptReconnect();
     }
 
-    public WebSocketSession getSession() {
-        return session;
+    private void attemptReconnect() {
+        if (ownerConnection != null) {
+            ownerConnection.reconnect();
+        } else {
+            log.warn("No owner connection set for reconnection");
+        }
     }
 
     private String extractInstrumentId(byte[] responseHeader) {

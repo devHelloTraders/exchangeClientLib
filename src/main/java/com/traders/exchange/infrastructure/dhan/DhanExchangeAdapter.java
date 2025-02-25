@@ -5,6 +5,8 @@ import com.traders.common.model.InstrumentDTO;
 import com.traders.common.model.InstrumentInfo;
 import com.traders.common.model.MarketQuotes;
 import com.traders.exchange.domain.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -12,6 +14,8 @@ import java.util.Map;
 
 @Service
 public class DhanExchangeAdapter implements ExchangePort {
+    private static final Logger logger = LoggerFactory.getLogger(DhanExchangeAdapter.class);
+
     private final DhanCredentialFactory credentialFactory;
     private final DhanConnectionPool connectionPool;
     private final DhanQuoteProvider quoteProvider;
@@ -31,7 +35,8 @@ public class DhanExchangeAdapter implements ExchangePort {
     @Override
     public void initialize() {
         if (!config.active()) return;
-        connectionPool.initialize(); // Uses credential via DhanWebSocketFactory
+        connectionPool.initialize();
+        logger.info("DhanExchangeAdapter initialized");
     }
 
     @Override

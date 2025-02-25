@@ -133,12 +133,12 @@ public class OrderMatchingService implements OrderMatchingPort {
     private boolean shouldMatchOrder(OrderCategory category, Double askedPrice, Double stopLossPrice, Double targetPrice, Double price, boolean isBuy) {
         return switch (category) {
             case MARKET -> true;
-            case LIMIT -> isBuy ? askedPrice <= price : askedPrice >= price;
+            case LIMIT -> isBuy ? askedPrice >= price : askedPrice <= price;
             case BRACKET_AT_MARKET -> isBuy
-                ? askedPrice <= price && (targetPrice == 0 || price <= targetPrice)
-                : stopLossPrice >= price && (targetPrice == 0 || price >= targetPrice);
-            case BRACKET_AT_LIMIT -> isBuy ? askedPrice <= price : askedPrice >= price;
-            case STOP_LOSS -> stopLossPrice >= price;
+                ? askedPrice >= price && (targetPrice == 0 || price >= targetPrice)
+                : stopLossPrice <= price && (targetPrice == 0 || price >= targetPrice);
+            case BRACKET_AT_LIMIT -> isBuy ? askedPrice >= price : askedPrice <= price;
+            case STOP_LOSS -> stopLossPrice <= price;
         };
     }
 
