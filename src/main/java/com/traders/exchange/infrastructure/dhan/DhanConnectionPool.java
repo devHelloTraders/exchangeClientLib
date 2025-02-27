@@ -110,6 +110,8 @@ public class DhanConnectionPool {
         }
 
         public void subscribe(List<InstrumentInfo> instruments) {
+            if(instruments.isEmpty())
+                return;
             executor.execute(() -> {
                 try {
                     WebSocketSession session = handler.getSession();
@@ -129,6 +131,8 @@ public class DhanConnectionPool {
         }
 
         public void unsubscribe(List<InstrumentInfo> instruments) {
+            if(instruments.isEmpty())
+                return;
             executor.execute(() -> {
                 try {
                     WebSocketSession session = handler.getSession();

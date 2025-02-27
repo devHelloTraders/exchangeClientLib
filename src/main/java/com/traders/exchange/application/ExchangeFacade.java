@@ -123,7 +123,8 @@ public class ExchangeFacade {
         }
 
         // Subscribe new instruments
-        subscriptionBus.dispatch(vendor, new SubscriptionCommand.Subscribe(instruments));
+        if(!instruments.isEmpty())
+            subscriptionBus.dispatch(vendor, new SubscriptionCommand.Subscribe(instruments));
         logger.info("Subscribed {} instruments for user {} from vendor: {}", instruments.size(), userId, vendor);
 
         // Update Redis with new getQuotes subscriptions
