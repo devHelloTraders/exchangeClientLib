@@ -20,7 +20,7 @@ public class DhanExchangeResolver {
     }
 
     public String resolveCategory(InstrumentDTO instrument) {
-        String key = instrument.getExchangeSegment() + "_" + instrument.getInstrument_type();
+        String key = instrument.getExchange() + "_" + instrument.getInstrument_type();
         return categoryMap.getOrDefault(key, "UNKNOWN");
     }
 }
