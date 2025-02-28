@@ -14,10 +14,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -107,8 +104,8 @@ public class ExchangeFacade {
         // Get previous getQuotes subscriptions from Redis
         Object previousValue = redisService.getValue(redisKey);
         Set<String> previousSubscriptions = previousValue instanceof String
-                ? Set.of(((String) previousValue).split(","))
-                : Set.of();
+                ? new HashSet<>(Arrays.asList(((String) previousValue).split(",")))
+                : new HashSet<>();
 
         // Unsubscribe previous getQuotes instruments if they exist
         if (!previousSubscriptions.isEmpty()) {
