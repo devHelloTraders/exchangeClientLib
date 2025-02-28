@@ -29,7 +29,7 @@ public enum OrderCategory {
 
         @Override
         public void postProcessOrder(OrderMatchingService service, TradeResponse tradeResponse) {
-            service.placeBuyOrder(tradeResponse);
+            tradeResponse.request().orderType().placeOrder(tradeResponse,service);
         }
     },
     BRACKET_AT_MARKET {
