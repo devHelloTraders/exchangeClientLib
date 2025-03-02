@@ -12,7 +12,8 @@ public record TradeRequest(
     Double askedPrice,
     Double stopLossPrice,
     Double targetPrice,
-    OrderValidity orderValidity
+    OrderValidity orderValidity,
+    Long transactionId
 ) {
 
 }
