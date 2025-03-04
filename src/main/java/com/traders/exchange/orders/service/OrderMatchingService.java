@@ -154,7 +154,7 @@ public class OrderMatchingService implements OrderMatchingPort {
         Map<String, ConcurrentSkipListSet<TradeResponse>> queues = isBuy ? buyOrderQueues : sellOrderQueues;
         Comparator<TradeResponse> comparator = isBuy
             ? Comparator.comparingDouble(TradeResponse::getAskedPrice)
-            : Comparator.comparingDouble(TradeResponse::getStopLossPrice).reversed();
+            : Comparator.comparingDouble(TradeResponse::getAskedPrice).reversed();
 
         queues.computeIfAbsent(stockSymbol, k -> new ConcurrentSkipListSet<>(comparator))
             .add(order);
