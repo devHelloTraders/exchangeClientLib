@@ -192,7 +192,7 @@ public class DhanConnectionPool {
                 log.error("Max reconnect attempts ({}) reached. Giving up.", MAX_RECONNECT_ATTEMPTS);
                 return;
             }
-
+            isConnected =false;
             long backoff = INITIAL_BACKOFF_MS * (1L << reconnectAttempts);
             reconnectAttempts++;
             log.info("Attempting reconnect #{} after {}ms backoff", reconnectAttempts, backoff);
