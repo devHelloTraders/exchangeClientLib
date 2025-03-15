@@ -7,7 +7,8 @@ import lombok.Builder;
 public record TradeResponse(
     TradeRequest request,
     Long transactionId,
-    String instrumentId
+    String instrumentId,
+    Boolean isShortSell
 ) {
     public Double getAskedPrice() {
         return request.askedPrice();
