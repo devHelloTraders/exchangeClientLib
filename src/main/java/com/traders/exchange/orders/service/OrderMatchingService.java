@@ -43,7 +43,7 @@ public class OrderMatchingService implements OrderMatchingPort {
     @Override
     public void onPriceUpdate(String instrumentId, MarketQuotes quote) {
         if (quote.getLatestTradedPrice() == 0) return;
-        executor.execute(() -> processPriceUpdate(instrumentId, quote.getLatestTradedPrice()));
+        executor.execute(() -> processPriceUpdate(instrumentId, quote));
     }
 
     private void startOrderProcessor() {
@@ -93,22 +93,22 @@ public class OrderMatchingService implements OrderMatchingPort {
         }
     }
 
-    private void processPriceUpdate(String stockSymbol, Double price) {
+    private void processPriceUpdate(String stockSymbol, MarketQuotes quotes) {
         ReadWriteLock lock = stockLocks.computeIfAbsent(stockSymbol, k -> new ReentrantReadWriteLock());
         lock.writeLock().lock();
         try {
-            processOrdersForPrice(stockSymbol, price);
+            processOrdersForPrice(stockSymbol, quotes);
         } finally {
             lock.writeLock().unlock();
         }
     }
 
-    private void processOrdersForPrice(String stockSymbol, Double price) {
-        processOrders(stockSymbol, price, buyOrderQueues, true);
-        processOrders(stockSymbol, price, sellOrderQueues, false);
+    private void processOrdersForPrice(String stockSymbol, MarketQuotes quotes) {
+        processOrders(stockSymbol, quotes, buyOrderQueues, true);
+        processOrders(stockSymbol, quotes, sellOrderQueues, false);
     }
 
-    private void processOrders(String stockSymbol, Double price, Map<String, ConcurrentSkipListSet<TradeResponse>> orderQueues, boolean isBuy) {
+    private void processOrders(String stockSymbol, MarketQuotes quotes, Map<String, ConcurrentSkipListSet<TradeResponse>> orderQueues, boolean isBuy) {
         ConcurrentSkipListSet<TradeResponse> orders = orderQueues.get(stockSymbol);
         if (orders == null || orders.isEmpty()) return;
 
@@ -116,7 +116,11 @@ public class OrderMatchingService implements OrderMatchingPort {
         while (iterator.hasNext()) {
             TradeResponse order = iterator.next();
             TradeRequest request = order.request();
-            boolean shouldMatch = shouldMatchOrder(request.orderCategory(), request.askedPrice(), request.stopLossPrice(), request.targetPrice(), price, isBuy);
+
+            double price = (isBuy)?quotes.getDepthDetails().getBuy().getFirst().getPrice() :
+                    quotes.getDepthDetails().getSell().getFirst().getPrice();
+
+            boolean shouldMatch = shouldMatchOrder(request.orderCategory(), request.askedPrice(), request.stopLossPrice(), request.targetPrice(), price, isBuy,order.isShortSell());
 
             if (shouldMatch) {
                 iterator.remove();
@@ -130,10 +134,28 @@ public class OrderMatchingService implements OrderMatchingPort {
         }
     }
 
-    private boolean shouldMatchOrder(OrderCategory category, Double askedPrice, Double stopLossPrice, Double targetPrice, Double price, boolean isBuy) {
+    private boolean shouldMatchOrder(OrderCategory category, Double askedPrice, Double stopLossPrice, Double targetPrice, Double price, boolean isBuy, boolean shortSell) {
         return switch (category) {
             case MARKET -> true;
-            case LIMIT -> isBuy ? askedPrice >= price : askedPrice <= price;
+            case LIMIT -> {
+                if(isBuy){
+                    if(shortSell){
+                        //short cover
+                        yield price >= askedPrice;
+                    }else{
+                        //Normal Buying
+                        yield price <= askedPrice;
+                    }
+                }else{
+                    if(shortSell){
+                        //short sell
+                        yield price <= askedPrice;
+                    }else{
+                        //Normal sell
+                        yield price >= askedPrice;
+                    }
+                }
+            }
             case BRACKET_AT_MARKET -> isBuy
                 ? askedPrice >= price && (targetPrice == 0 || price >= targetPrice)
                 : stopLossPrice <= price && (targetPrice == 0 || price >= targetPrice);
