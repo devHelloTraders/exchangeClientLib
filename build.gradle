@@ -79,6 +79,8 @@ dependencies {
     // Ensure Spring Boot integration for Feign (optional, but helps)
     implementation 'org.springframework.boot:spring-boot-starter-web'
 
+    implementation 'com.google.code.gson:gson:2.12.1'
+
 }
 
 dependencyManagement {

@@ -1,19 +1,20 @@
 // com.traders.exchange.infrastructure.dhan.DhanWebSocketHandler
 package com.traders.exchange.infrastructure.dhan;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonPrimitive;
 import com.traders.common.model.MarketQuotes;
 import com.traders.exchange.orders.service.OrderMatchingService;
 import com.traders.exchange.util.Subject;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.web.socket.BinaryMessage;
-import org.springframework.web.socket.CloseStatus;
-import org.springframework.web.socket.WebSocketSession;
+import org.springframework.web.socket.*;
 import org.springframework.web.socket.handler.AbstractWebSocketHandler;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.time.LocalDateTime;
 import java.util.concurrent.Executors;
 
 @Slf4j
@@ -38,7 +39,20 @@ public class DhanWebSocketHandler extends AbstractWebSocketHandler {
         this.session = session;
         log.info("WebSocket connection established for session: {}", session.getId());
     }
-
+    @Override
+    protected void handlePongMessage(WebSocketSession session, PongMessage message) throws Exception {
+        JsonObject payloadJson = createPingPayload(session); //  Maximum allowed payload of 125 bytes only
+        ByteBuffer payload = ByteBuffer.wrap(payloadJson.toString().getBytes());
+        session.sendMessage(new PingMessage(payload));
+    }
+    private JsonObject createPingPayload(WebSocketSession session) {
+        ownerConnection.updateLastPongReceived(); // Update last pong received
+        log.debug("Received pong at {}", ownerConnection.getLastPongReceived());
+        JsonObject payload = new JsonObject();
+        payload.add("sessionId", new JsonPrimitive(session.getId()));
+        payload.add("pingedAt", new JsonPrimitive(LocalDateTime.now().toString()));
+        return payload;
+    }
     @Override
     public void handleBinaryMessage(WebSocketSession session, BinaryMessage message) {
         ByteBuffer buffer = message.getPayload();
@@ -59,6 +73,7 @@ public class DhanWebSocketHandler extends AbstractWebSocketHandler {
                 priceUpdates.notifyObservers(quote);
                 orderMatchingService.onPriceUpdate(instrumentId, quote);
             });
+            ownerConnection.updateLastReceivedTime();
 
         } else {
             log.warn("Unhandled feed response code: {}", feedResponseCode);

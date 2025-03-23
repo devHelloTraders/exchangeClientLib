@@ -16,7 +16,7 @@ public class PriceUpdateManager {
 
     public void sendPriceUpdate(String instrumentId, MarketQuotes priceUpdate) {
         subscriptionService.getUserSubscriptions().forEach((sessionId, subscribedInstruments) -> {
-            if (subscribedInstruments.contains(instrumentId)) {
+            if (subscribedInstruments.contains(instrumentId) || subscribedInstruments.contains("MASTER")) {
                 messagingTemplate.convertAndSendToUser(sessionId, "/topic/update", priceUpdate);
             }
         });

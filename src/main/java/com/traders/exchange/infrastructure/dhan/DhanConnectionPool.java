@@ -1,17 +1,24 @@
 // com.traders.exchange.infrastructure.dhan.DhanConnectionPool
 package com.traders.exchange.infrastructure.dhan;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonPrimitive;
 import com.traders.common.model.InstrumentInfo;
 import com.traders.exchange.domain.SubscriptionCommand;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.BinaryMessage;
+import org.springframework.web.socket.PingMessage;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.client.WebSocketConnectionManager;
 
+import javax.websocket.Session;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -28,11 +35,11 @@ public class DhanConnectionPool {
     private static final int UNSUBSCRIBE_REQUEST_CODE = 22;
     private static final long HEARTBEAT_INTERVAL_MS = 30000; // 30 seconds
     private static final int MAX_RECONNECT_ATTEMPTS = 5;
-    private static final long INITIAL_BACKOFF_MS = 1000; // 1 second
+    private static final long INITIAL_BACKOFF_MS = 500; // 1 second
 
     private final DhanCredentialFactory credentialFactory;
     private final DhanWebSocketFactory webSocketFactory;
-    private final List<DhanConnection> connections = new CopyOnWriteArrayList<>();
+    @Getter private final List<DhanConnection> connections = new CopyOnWriteArrayList<>();
     private final CircuitBreaker circuitBreaker;
 
     public DhanConnectionPool(DhanCredentialFactory credentialFactory, DhanWebSocketFactory webSocketFactory) {
@@ -81,9 +88,13 @@ public class DhanConnectionPool {
         private final Executor executor;
         private final DhanWebSocketHandler handler;
         private final ScheduledExecutorService heartbeatExecutor;
-        private volatile boolean isConnected;
+        @Getter private volatile boolean isConnected;
         private int reconnectAttempts;
-
+        @Getter private LocalDateTime startTime;
+        @Getter private LocalDateTime lastReceivedTime;
+        @Getter private int subscriptionCount;
+        @Getter private LocalDateTime lastPingSent;
+        @Getter private LocalDateTime lastPongReceived;
         public DhanConnection(WebSocketConnectionManager manager, Executor executor, DhanWebSocketHandler handler) {
             this.manager = manager;
             this.executor = executor;
@@ -92,7 +103,7 @@ public class DhanConnectionPool {
             this.isConnected = false;
             this.reconnectAttempts = 0;
             startConnection();
-            startHeartbeat();
+           // startHeartbeat();
         }
 
         private void startConnection() {
@@ -101,6 +112,7 @@ public class DhanConnectionPool {
                     manager.start();
                     isConnected = true;
                     reconnectAttempts = 0;
+                    startTime = LocalDateTime.now();
                     log.info("DhanConnection started");
                 } catch (Exception e) {
                     log.error("Failed to start DhanConnection: {}", e.getMessage(), e);
@@ -108,7 +120,12 @@ public class DhanConnectionPool {
                 }
             });
         }
-
+        public void updateLastPongReceived() {
+            this.lastPongReceived = LocalDateTime.now();
+        }
+        public void updateLastReceivedTime() {
+            this.lastReceivedTime = LocalDateTime.now();
+        }
         public void subscribe(List<InstrumentInfo> instruments) {
             if(instruments.isEmpty())
                 return;
@@ -172,12 +189,22 @@ public class DhanConnectionPool {
             executor.execute(manager::start);
         }
 
+        private JsonObject createPingPayload(WebSocketSession session) {
+            JsonObject payload = new JsonObject();
+            payload.add("sessionId", new JsonPrimitive(session.getId()));
+            payload.add("pingedAt", new JsonPrimitive(LocalDateTime.now().toString()));
+            return payload;
+        }
         private void startHeartbeat() {
             heartbeatExecutor.scheduleAtFixedRate(() -> {
                 WebSocketSession session = handler.getSession();
                 if (isConnected && session != null && session.isOpen()) {
                     try {
-                        session.sendMessage(new BinaryMessage(new byte[0]));
+                        JsonObject payloadJson = createPingPayload(session); //  Maximum allowed payload of 125 bytes only
+                        ByteBuffer payload = ByteBuffer.wrap(payloadJson.toString().getBytes());
+                        session.sendMessage(new PingMessage(payload));
+                        lastPingSent = LocalDateTime.now(); // Update last ping sent
+                        log.debug("Sent heartbeat ping at {}", lastPingSent);
                         log.debug("Sent heartbeat ping");
                     } catch (Exception e) {
                         log.warn("Heartbeat failed: {}", e.getMessage());
