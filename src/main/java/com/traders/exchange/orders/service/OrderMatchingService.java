@@ -1,4 +1,3 @@
-// com.traders.exchange.orders.service.OrderMatchingService
 package com.traders.exchange.orders.service;
 
 import com.traders.common.model.MarketQuotes;
@@ -14,7 +13,8 @@ import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
- * Advanced OrderMatchingService with optimized performance, incorporating postProcessOrder from OrderCategory.
+ * Enhanced OrderMatchingService with order price update capability.
+ * Optimized with Java 21 virtual threads and thread-safe collections.
  */
 @Service
 public class OrderMatchingService implements OrderMatchingPort {
@@ -24,6 +24,7 @@ public class OrderMatchingService implements OrderMatchingPort {
     private final Map<String, ConcurrentSkipListSet<TradeResponse>> sellOrderQueues = new ConcurrentHashMap<>();
     private final Set<Long> loadedTransactionIds = ConcurrentHashMap.newKeySet();
     private final Map<String, ReadWriteLock> stockLocks = new ConcurrentHashMap<>();
+    private final Map<Long, TradeResponse> orderLookup = new ConcurrentHashMap<>(); // For fast order updates
 
     private final Executor executor = Executors.newVirtualThreadPerTaskExecutor();
     private final TradeFeignService tradeFeign;
@@ -44,6 +45,51 @@ public class OrderMatchingService implements OrderMatchingPort {
     public void onPriceUpdate(String instrumentId, MarketQuotes quote) {
         if (quote.getLatestTradedPrice() == 0) return;
         executor.execute(() -> processPriceUpdate(instrumentId, quote));
+    }
+
+    /**
+     * Updates the price of an existing order in the queue.
+     *
+     * @param transactionId The ID of the order to update
+     * @param newPrice      The new asked price
+     * @return true if updated, false if order not found
+     */
+    public boolean updateOrderPrice(long transactionId, double newPrice) {
+        TradeResponse existing = orderLookup.get(transactionId);
+        if (existing == null) {
+            logger.warn("Order not found for update: {}", transactionId);
+            return false;
+        }
+
+        String stockSymbol = existing.instrumentId();
+        boolean isBuy = existing.request().orderType() == OrderType.BUY;
+        Map<String, ConcurrentSkipListSet<TradeResponse>> queues = isBuy ? buyOrderQueues : sellOrderQueues;
+
+        ConcurrentSkipListSet<TradeResponse> queue = queues.get(stockSymbol);
+        if (queue == null || !queue.contains(existing)) {
+            logger.warn("Order {} not in queue for stock {}", transactionId, stockSymbol);
+            return false;
+        }
+
+        TradeRequest updatedRequest = existing.request().withAskedPrice(newPrice);
+        TradeResponse updated = new TradeResponse(updatedRequest,
+                existing.transactionId(),
+                existing.instrumentId(),
+                existing.isShortSell()
+        );
+
+        ReadWriteLock lock = stockLocks.computeIfAbsent(stockSymbol, k -> new ReentrantReadWriteLock());
+        lock.writeLock().lock();
+        try {
+            queue.remove(existing);
+            queue.add(updated);
+            orderLookup.put(transactionId, updated);
+            logger.info("Updated order {} price from {} to {} in {} queue for stock {}",
+                    transactionId, existing.request().askedPrice(), newPrice, isBuy ? "buy" : "sell", stockSymbol);
+            return true;
+        } finally {
+            lock.writeLock().unlock();
+        }
     }
 
     private void startOrderProcessor() {
@@ -68,13 +114,12 @@ public class OrderMatchingService implements OrderMatchingPort {
     }
 
     private void processOrderTask(OrderTask task) {
-        TransactionCommand command = task.command;
-        switch (command) {
+        switch (task.command) {
             case TransactionCommand.PlaceBuy(var req) -> {
                 try {
                     req.request().orderCategory().validateTradeRequest(req.request());
                     placeOrder(req, true);
-                    req.request().orderCategory().postProcessOrder(this, req); // Pass this instance
+                    req.request().orderCategory().postProcessOrder(this, req);
                 } catch (IllegalArgumentException e) {
                     logger.warn("Invalid buy order request: {}", e.getMessage());
                 }
@@ -83,13 +128,13 @@ public class OrderMatchingService implements OrderMatchingPort {
                 try {
                     req.request().orderCategory().validateTradeRequest(req.request());
                     placeOrder(req, false);
-                    req.request().orderCategory().postProcessOrder(this, req); // Pass this instance
+                    req.request().orderCategory().postProcessOrder(this, req);
                 } catch (IllegalArgumentException e) {
                     logger.warn("Invalid sell order request: {}", e.getMessage());
                 }
             }
             case TransactionCommand.UpdateStatus(var id, var status, var price) ->
-                tradeFeign.updateTradeTransaction(new TransactionUpdateRecord(id, price, status));
+                    tradeFeign.updateTradeTransaction(new TransactionUpdateRecord(id, price, status));
         }
     }
 
@@ -108,7 +153,8 @@ public class OrderMatchingService implements OrderMatchingPort {
         processOrders(stockSymbol, quotes, sellOrderQueues, false);
     }
 
-    private void processOrders(String stockSymbol, MarketQuotes quotes, Map<String, ConcurrentSkipListSet<TradeResponse>> orderQueues, boolean isBuy) {
+    private void processOrders(String stockSymbol, MarketQuotes quotes,
+                               Map<String, ConcurrentSkipListSet<TradeResponse>> orderQueues, boolean isBuy) {
         ConcurrentSkipListSet<TradeResponse> orders = orderQueues.get(stockSymbol);
         if (orders == null || orders.isEmpty()) return;
 
@@ -117,48 +163,44 @@ public class OrderMatchingService implements OrderMatchingPort {
             TradeResponse order = iterator.next();
             TradeRequest request = order.request();
 
-            double price = (isBuy)?quotes.getDepthDetails().getBuy().getFirst().getPrice() :
-                    quotes.getDepthDetails().getSell().getFirst().getPrice();
+            double price = isBuy
+                    ? quotes.getDepthDetails().getBuy().getFirst().getPrice()
+                    : quotes.getDepthDetails().getSell().getFirst().getPrice();
 
-            boolean shouldMatch = shouldMatchOrder(request.orderCategory(), request.askedPrice(), request.stopLossPrice(), request.targetPrice(), price, isBuy,order.isShortSell());
+            boolean shouldMatch = shouldMatchOrder(
+                    request.orderCategory(), request.askedPrice(), request.stopLossPrice(),
+                    request.targetPrice(), price, isBuy, order.isShortSell()
+            );
 
             if (shouldMatch) {
                 iterator.remove();
                 TransactionUpdateRecord updateRecord = new TransactionUpdateRecord(
-                    order.transactionId(), price, TransactionStatus.COMPLETED
+                        order.transactionId(), price, TransactionStatus.COMPLETED
                 );
                 completeTransaction(updateRecord);
+                orderLookup.remove(order.transactionId());
             } else {
                 break;
             }
         }
     }
 
-    private boolean shouldMatchOrder(OrderCategory category, Double askedPrice, Double stopLossPrice, Double targetPrice, Double price, boolean isBuy, boolean shortSell) {
+    private boolean shouldMatchOrder(OrderCategory category, Double askedPrice, Double stopLossPrice,
+                                     Double targetPrice, Double price, boolean isBuy, boolean shortSell) {
         return switch (category) {
             case MARKET -> true;
             case LIMIT -> {
-                if(isBuy){
-                    if(shortSell){
-                        //short cover
-                        yield price >= askedPrice;
-                    }else{
-                        //Normal Buying
-                        yield price <= askedPrice;
-                    }
-                }else{
-                    if(shortSell){
-                        //short sell
-                        yield price <= askedPrice;
-                    }else{
-                        //Normal sell
-                        yield price >= askedPrice;
-                    }
+                if (isBuy) {
+                    if (shortSell) yield price >= askedPrice; // Short cover
+                    else yield price <= askedPrice; // Normal buying
+                } else {
+                    if (shortSell) yield price <= askedPrice; // Short sell
+                    else yield price >= askedPrice; // Normal sell
                 }
             }
             case BRACKET_AT_MARKET -> isBuy
-                ? askedPrice >= price && (targetPrice == 0 || price >= targetPrice)
-                : stopLossPrice <= price && (targetPrice == 0 || price >= targetPrice);
+                    ? askedPrice >= price && (targetPrice == 0 || price >= targetPrice)
+                    : stopLossPrice <= price && (targetPrice == 0 || price >= targetPrice);
             case BRACKET_AT_LIMIT -> isBuy ? askedPrice >= price : askedPrice <= price;
             case STOP_LOSS -> stopLossPrice <= price;
         };
@@ -175,16 +217,22 @@ public class OrderMatchingService implements OrderMatchingPort {
         String stockSymbol = order.instrumentId();
         Map<String, ConcurrentSkipListSet<TradeResponse>> queues = isBuy ? buyOrderQueues : sellOrderQueues;
         Comparator<TradeResponse> comparator = isBuy
-            ? Comparator.comparingDouble(TradeResponse::getAskedPrice)
-            : Comparator.comparingDouble(TradeResponse::getAskedPrice).reversed();
+                ? Comparator.comparingDouble(TradeResponse::getAskedPrice)
+                : Comparator.comparingDouble(TradeResponse::getAskedPrice).reversed();
 
-        queues.computeIfAbsent(stockSymbol, k -> new ConcurrentSkipListSet<>(comparator))
-            .add(order);
-        loadedTransactionIds.add(order.transactionId());
-        logger.debug("Placed {} order for stock {}: {}", isBuy ? "buy" : "sell", stockSymbol, order);
+        ReadWriteLock lock = stockLocks.computeIfAbsent(stockSymbol, k -> new ReentrantReadWriteLock());
+        lock.writeLock().lock();
+        try {
+            queues.computeIfAbsent(stockSymbol, k -> new ConcurrentSkipListSet<>(comparator))
+                    .add(order);
+            loadedTransactionIds.add(order.transactionId());
+            orderLookup.put(order.transactionId(), order);
+            logger.debug("Placed {} order for stock {}: {}", isBuy ? "buy" : "sell", stockSymbol, order);
+        } finally {
+            lock.writeLock().unlock();
+        }
     }
 
-    // Public methods for OrderCategory.postProcessOrder
     public void placeBuyOrder(TradeResponse order) {
         placeOrder(order, true);
     }
