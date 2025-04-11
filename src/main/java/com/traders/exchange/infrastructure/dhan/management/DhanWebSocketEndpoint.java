@@ -17,7 +17,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 @Component
-@Endpoint(id = "dhanwebsockets")
 public class DhanWebSocketEndpoint implements VendorWebsocket{
 
     private final DhanConnectionPool connectionPool;
