@@ -6,6 +6,7 @@ import com.traders.exchange.domain.TradeRequest;
 import com.traders.exchange.domain.TransactionUpdateRecord;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.stereotype.Service;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 
@@ -17,6 +18,11 @@ public interface TradeFeignService {
 
     @PostMapping("/api/portfolio/transactions/addTxn")
     List<TradeOrderDetails> addTradeTransaction(@RequestBody TradeRequest tradeRequest);
+
+    @PostMapping("/api/portfolio/transactions/addTxn/{userId}")
+    List<TradeOrderDetails> addTradeTransaction(@PathVariable Long userId,
+                                                @RequestBody TradeRequest tradeRequest);
+
 
     @PostMapping("/api/portfolio/transactions/update")
     void updateTradeTransaction(@RequestBody TransactionUpdateRecord updateRecord);
