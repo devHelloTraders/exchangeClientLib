@@ -207,9 +207,12 @@ public class OrderMatchingService implements OrderMatchingPort {
     }
 
     private void completeTransaction(TransactionUpdateRecord order) {
-        tradeFeign.updateTradeTransaction(order);
-        loadedTransactionIds.remove(order.id());
-        logger.debug("Completed transaction: {}", order);
+        executor.execute(()->{
+            tradeFeign.updateTradeTransaction(order);
+            loadedTransactionIds.remove(order.id());
+            logger.debug("Completed transaction: {}", order);
+        });
+
     }
 
     private void placeOrder(TradeResponse order, boolean isBuy) {
