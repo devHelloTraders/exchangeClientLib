@@ -164,8 +164,8 @@ public class OrderMatchingService implements OrderMatchingPort {
             TradeRequest request = order.request();
 
             double price = isBuy
-                    ? quotes.getDepthDetails().getBuy().getFirst().getPrice()
-                    : quotes.getDepthDetails().getSell().getFirst().getPrice();
+                    ? quotes.getDepthDetails().getSell().getFirst().getPrice()
+                    : quotes.getDepthDetails().getBuy().getFirst().getPrice();
 
             boolean shouldMatch = shouldMatchOrder(
                     request.orderCategory(), request.askedPrice(), request.stopLossPrice(),

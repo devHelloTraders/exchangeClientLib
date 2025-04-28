@@ -15,6 +15,7 @@ public class DhanExchangeResolver {
         categoryMap.put("NSE_FUTSTK", "NSE_FNO");
         categoryMap.put("NSE_OPTSTK", "NSE_FNO");
         categoryMap.put("NSE_OPTIDX", "NSE_FNO");
+        categoryMap.put("NSE_FUTIDX", "NSE_FNO");
         categoryMap.put("MCX_FUTCOM", "MCX_COMM");
         categoryMap.put("MCX_OPTFUT", "MCX_COMM");
     }
