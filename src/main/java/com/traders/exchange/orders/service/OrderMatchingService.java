@@ -187,6 +187,9 @@ public class OrderMatchingService implements OrderMatchingPort {
 
     private boolean shouldMatchOrder(OrderCategory category, Double askedPrice, Double stopLossPrice,
                                      Double targetPrice, Double price, boolean isBuy, boolean shortSell) {
+        if(price == 0.0)
+            return false;
+
         return switch (category) {
             case MARKET -> true;
             case LIMIT -> {
@@ -194,8 +197,9 @@ public class OrderMatchingService implements OrderMatchingPort {
                     if (shortSell) yield price >= askedPrice; // Short cover
                     else yield price <= askedPrice; // Normal buying
                 } else {
-                    if (shortSell) yield price <= askedPrice; // Short sell
-                    else yield price >= askedPrice; // Normal sell
+                    /*if (shortSell) yield price <= askedPrice; // Short sell
+                    else yield price >= askedPrice;*/ // Normal sell
+                    yield price >= askedPrice;
                 }
             }
             case BRACKET_AT_MARKET -> isBuy
