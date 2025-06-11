@@ -8,7 +8,8 @@ public record TradeResponse(
     TradeRequest request,
     Long transactionId,
     String instrumentId,
-    Boolean isShortSell
+    Boolean isShortSell,
+    Double priceWhenOrderPlaced
 ) {
     public Double getAskedPrice() {
         return request.askedPrice();
