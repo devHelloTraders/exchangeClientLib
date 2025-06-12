@@ -174,6 +174,8 @@ public class OrderMatchingService implements OrderMatchingPort {
             );
 
             if (shouldMatch) {
+                logger.info("Price matched for transaction ID {}, Price When Order Placed : {} | Asked Price : {} | Executed Price : {}"
+                        , request.transactionId(), order.priceWhenOrderPlaced(),order.getAskedPrice(),price);
                 iterator.remove();
                 TransactionUpdateRecord updateRecord = new TransactionUpdateRecord(
                         order.transactionId(), price, TransactionStatus.COMPLETED
