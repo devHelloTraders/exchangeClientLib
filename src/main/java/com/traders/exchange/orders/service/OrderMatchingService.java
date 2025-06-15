@@ -54,7 +54,7 @@ public class OrderMatchingService implements OrderMatchingPort {
      * @param newPrice      The new asked price
      * @return true if updated, false if order not found
      */
-    public boolean updateOrderPrice(long transactionId, double newPrice) {
+    public boolean updateOrderPrice(long transactionId, double newPrice, double priceWhenUpdated) {
         TradeResponse existing = orderLookup.get(transactionId);
         if (existing == null) {
             logger.warn("Order not found for update: {}", transactionId);
@@ -75,7 +75,8 @@ public class OrderMatchingService implements OrderMatchingPort {
         TradeResponse updated = new TradeResponse(updatedRequest,
                 existing.transactionId(),
                 existing.instrumentId(),
-                existing.isShortSell()
+                existing.isShortSell(),
+                priceWhenUpdated
         );
 
         ReadWriteLock lock = stockLocks.computeIfAbsent(stockSymbol, k -> new ReentrantReadWriteLock());
@@ -169,10 +170,12 @@ public class OrderMatchingService implements OrderMatchingPort {
 
             boolean shouldMatch = shouldMatchOrder(
                     request.orderCategory(), request.askedPrice(), request.stopLossPrice(),
-                    request.targetPrice(), price, isBuy, order.isShortSell()
+                    request.targetPrice(), price, order.priceWhenOrderPlaced(), isBuy, order.isShortSell()
             );
 
             if (shouldMatch) {
+                logger.info("Price matched for transaction ID {}, Price When Order Placed : {} | Asked Price : {} | Executed Price : {}"
+                        , request.transactionId(), order.priceWhenOrderPlaced(),order.getAskedPrice(),price);
                 iterator.remove();
                 TransactionUpdateRecord updateRecord = new TransactionUpdateRecord(
                         order.transactionId(), price, TransactionStatus.COMPLETED
@@ -186,16 +189,18 @@ public class OrderMatchingService implements OrderMatchingPort {
     }
 
     private boolean shouldMatchOrder(OrderCategory category, Double askedPrice, Double stopLossPrice,
-                                     Double targetPrice, Double price, boolean isBuy, boolean shortSell) {
+                                     Double targetPrice, Double price, Double priceWhenOrderPlaced, boolean isBuy, boolean shortSell) {
+        if(price == 0.0)
+            return false;
+
         return switch (category) {
             case MARKET -> true;
             case LIMIT -> {
-                if (isBuy) {
-                    if (shortSell) yield price >= askedPrice; // Short cover
-                    else yield price <= askedPrice; // Normal buying
+                boolean isPriceImproved = askedPrice < priceWhenOrderPlaced;
+                if (isPriceImproved) {
+                    yield price <= askedPrice;
                 } else {
-                    if (shortSell) yield price <= askedPrice; // Short sell
-                    else yield price >= askedPrice; // Normal sell
+                    yield price >= askedPrice;
                 }
             }
             case BRACKET_AT_MARKET -> isBuy

@@ -1,7 +1,7 @@
 package com.traders.exchange.domain;
 
 public record TransactionUpdateRecord(
-    long id,
-    double price,
+    Long id,
+    Double price,
     TransactionStatus transactionStatus
 ) {}
