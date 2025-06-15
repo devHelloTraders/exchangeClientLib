@@ -1,5 +1,4 @@
-// com.traders.exchange.infrastructure.dhan.DhanConnectionPool
-package com.traders.exchange.infrastructure.dhan;
+package com.traders.exchange.infrastructure.twelvedata;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
@@ -9,43 +8,37 @@ import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-import org.springframework.web.socket.BinaryMessage;
 import org.springframework.web.socket.PingMessage;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.client.WebSocketConnectionManager;
 
-import javax.websocket.Session;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.stream.Collectors;
 
 @Slf4j
 @Component
-public class DhanConnectionPool {
+public class TwelveDataConnectionPool {
     private static final int SUBSCRIBE_REQUEST_CODE = 21;
     private static final int UNSUBSCRIBE_REQUEST_CODE = 22;
     private static final long HEARTBEAT_INTERVAL_MS = 30000; // 30 seconds
     private static final int MAX_RECONNECT_ATTEMPTS = 5;
     private static final long INITIAL_BACKOFF_MS = 500; // 1 second
 
-    private final DhanCredentialFactory credentialFactory;
-    private final DhanWebSocketFactory webSocketFactory;
-    @Getter private final List<DhanConnection> connections = new CopyOnWriteArrayList<>();
+    private final TwelveDataCredentialFactory credentialFactory;
+    private final TwelveDataWebSocketFactory webSocketFactory;
+    @Getter private final List<TwelveDataConnection> connections = new CopyOnWriteArrayList<>();
     private final CircuitBreaker circuitBreaker;
 
-    public DhanConnectionPool(DhanCredentialFactory credentialFactory, DhanWebSocketFactory webSocketFactory) {
+    public TwelveDataConnectionPool(TwelveDataCredentialFactory credentialFactory, TwelveDataWebSocketFactory webSocketFactory) {
         this.credentialFactory = credentialFactory;
         this.webSocketFactory = webSocketFactory;
-        this.circuitBreaker = CircuitBreaker.ofDefaults("dhanWebSocket");
+        this.circuitBreaker = CircuitBreaker.ofDefaults("TwelveDataWebSocket");
     }
 
     public void initialize() {
@@ -53,11 +46,11 @@ public class DhanConnectionPool {
         credentialFactory.getCredentials().forEach(credential -> {
             connections.add(webSocketFactory.createConnection(credential));
         });
-        log.info("Initialized DhanConnectionPool with {} connections", connections.size());
+        log.info("Initialized TwelveDataConnectionPool with {} connections", connections.size());
     }
 
     public void execute(SubscriptionCommand command) {
-        DhanConnection conn = getLeastLoadedConnection();
+        TwelveDataConnection conn = getLeastLoadedConnection();
         Runnable subscriptionTask = () -> {
             switch (command) {
                 case SubscriptionCommand.Subscribe(var instruments) -> conn.subscribe(instruments);
@@ -67,26 +60,26 @@ public class DhanConnectionPool {
         circuitBreaker.executeRunnable(subscriptionTask);
     }
 
-    private DhanConnection getLeastLoadedConnection() {
+    private TwelveDataConnection getLeastLoadedConnection() {
         return connections.stream()
-                .min(Comparator.comparingInt(DhanConnection::getLoad))
+                .min(Comparator.comparingInt(TwelveDataConnection::getLoad))
                 .orElseGet(() -> createNewConnection(credentialFactory.getRandomCredential()));
     }
 
-    private DhanConnection createNewConnection(DhanCredentialFactory.Credential credential) {
-        DhanConnection conn = webSocketFactory.createConnection(credential);
+    private TwelveDataConnection createNewConnection(TwelveDataCredentialFactory.Credential credential) {
+        TwelveDataConnection conn = webSocketFactory.createConnection(credential);
         connections.add(conn);
         return conn;
     }
 
     public void restart() {
-        connections.forEach(DhanConnection::restart);
+        connections.forEach(TwelveDataConnection::restart);
     }
 
-    public static class DhanConnection {
+    public static class TwelveDataConnection {
         private final WebSocketConnectionManager manager;
         private final Executor executor;
-        private final DhanWebSocketHandler handler;
+        private final TwelveDataWebSocketHandler handler;
         private final ScheduledExecutorService heartbeatExecutor;
         @Getter private volatile boolean isConnected;
         private int reconnectAttempts;
@@ -95,7 +88,7 @@ public class DhanConnectionPool {
         @Getter private int subscriptionCount;
         @Getter private LocalDateTime lastPingSent;
         @Getter private LocalDateTime lastPongReceived;
-        public DhanConnection(WebSocketConnectionManager manager, Executor executor, DhanWebSocketHandler handler) {
+        public TwelveDataConnection(WebSocketConnectionManager manager, Executor executor, TwelveDataWebSocketHandler handler) {
             this.manager = manager;
             this.executor = executor;
             this.handler = handler;
@@ -113,9 +106,9 @@ public class DhanConnectionPool {
                     isConnected = true;
                     reconnectAttempts = 0;
                     startTime = LocalDateTime.now();
-                    log.info("DhanConnection started");
+                    log.info("TwelveData Connection started");
                 } catch (Exception e) {
-                    log.error("Failed to start DhanConnection: {}", e.getMessage(), e);
+                    log.error("Failed to start TwelveData Connection: {}", e.getMessage(), e);
                     reconnect();
                 }
             });
